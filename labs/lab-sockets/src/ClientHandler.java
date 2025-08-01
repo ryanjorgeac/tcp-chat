@@ -8,6 +8,8 @@ class ClientHandler extends Thread {
     DataInputStream in;
     DataOutputStream out;
     Socket clientSocket;
+    private String clientName;
+    private volatile boolean running = true;
 
     public ClientHandler(Socket aClientSocket) {
         try {
@@ -20,19 +22,50 @@ class ClientHandler extends Thread {
     }
 
     public void run() {
-        try { // an echo server
-            String data = in.readUTF(); // read a line of data from the stream
-            System.out.println("Mensagem recebida: " + data);
-            out.writeUTF(data.toUpperCase());
+        try {
+            clientName = in.readUTF();
+            
+            MultiTCPServer.addClient(clientName, this);
+            
+            while (running && !clientSocket.isClosed()) {
+                String data = in.readUTF();
+                if (data.equalsIgnoreCase("sair")) {
+                    running = false;
+                    break;
+                }
+                System.out.println(clientName + ": " + data);
+                MultiTCPServer.broadcastMessage(clientName + ": " + data, this);
+            }
         } catch (EOFException e) {
-            System.out.println("EOF:" + e.getMessage());
+            System.out.println("Cliente '" + clientName + "' desconectou inesperadamente.");
         } catch (IOException e) {
-            System.out.println("readline:" + e.getMessage());
+            System.out.println("Erro com cliente '" + clientName + "': " + e.getMessage());
         } finally {
-            try {
-                clientSocket.close();
-            } catch (IOException e) {
-                /* close failed */}
+            cleanup();
         }
+    }
+
+    public void sendMessage(String message) {
+        try {
+            synchronized (out) {
+                out.writeUTF(message);
+            }
+        } catch (IOException e) {
+            System.out.println("Erro ao enviar mensagem para '" + clientName + "': " + e.getMessage());
+            cleanup();
+        }
+    }
+
+    private void cleanup() {
+        running = false;
+        try {
+            if (clientName != null) {
+                MultiTCPServer.removeClient(clientName);
+            }
+            clientSocket.close();
+        } catch (IOException e) {
+            // Ignora erros no fechamento
+        }
+        System.out.println("Conexão com '" + clientName + "' encerrada.");
     }
 }
